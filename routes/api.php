@@ -20,10 +20,12 @@ Route::post('ping',[\App\Http\Controllers\CommunicatorController::class,'ping'])
 
 Route::post('close',[\App\Http\Controllers\CommunicatorController::class,'closeMasterStatus']);
 
-Route::get('trader',[\App\Http\Controllers\CommunicatorController::class,'createTrader']);
+Route::get('trader',[\App\Http\Controllers\CommunicatorController::class,'createTrader'])->name('trader.create');
 
 Route::post('getpositions',[\App\Http\Controllers\CommunicatorController::class,'getRecentPositions']);
 
 Route::post('pingmaster',[\App\Http\Controllers\CommunicatorController::class,'checkMasterStatus']);
 
 Route::post('zapier/webhook', [WebhookController::class, 'handle']);
+
+Route::get('connection_status',[\App\Http\Controllers\CommunicatorController::class,'deactivateInactiveSlaveTraders']);

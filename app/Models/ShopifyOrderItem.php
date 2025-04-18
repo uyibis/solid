@@ -12,6 +12,7 @@ class ShopifyOrderItem extends Model
         'name',
         'quantity',
         'price',
+        'slave_traders_id',
     ];
 
 }

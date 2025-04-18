@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Position;
+use App\Models\SlaveTrader;
 use App\Models\Trade;
 use App\Models\Trader;
 use Illuminate\Http\Request;
@@ -160,7 +161,13 @@ class CommunicatorController extends Controller
             'time' => $request->input('Time'),
         ];
 
-        Log::alert($data);
+        // ✅ Validate MasterId (trader code)
+        if (!$this->isValidMasterTrader($data['master_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or inactive Master ID.',
+            ], 400);
+        }
 
         // Check if a record with the same instrument and master_id already exists
         $existingPosition = Position::where('master_id', $data['master_id'])
@@ -183,24 +190,53 @@ class CommunicatorController extends Controller
         return response()->json($position, 201);
     }
 
+    protected function isValidMasterTrader($traderCode): bool
+    {
+        $trader = Trader::where('code', $traderCode)->with('userTrader')->first();
+
+        return $trader && $trader->userTrader && $trader->userTrader->status === true;
+    }
+
+    public function deactivateInactiveSlaveTraders()
+    {
+        // Get the current time
+        $currentTime = now();
+
+        // Find all SlaveTraders where 'required' is more than 3 minutes ago
+        $inactiveSlaveTraders = SlaveTrader::where('connection_status', true)
+            ->where('updated_at', '<', $currentTime->subMinutes(3)) // Subtract 3 minutes
+            ->get();
+
+        // Loop through and set their connection_status to false
+        foreach ($inactiveSlaveTraders as $slaveTrader) {
+            $slaveTrader->connection_status = false;
+            $slaveTrader->save();
+        }
+
+        // Return a response indicating how many records were updated
+        return response()->json([
+            'success' => true,
+            'message' => count($inactiveSlaveTraders) . ' SlaveTrader(s) deactivated.',
+        ]);
+    }
 
     public function recordClosingPosition(Request $request){
         Log::alert('position',$request->all());
     }
 
-   /*public function ping(Request $request){
-        $masterId = $request->input('MasterId');
+    /*public function ping(Request $request){
+         $masterId = $request->input('MasterId');
 
-        // Find the trader by MasterId and update updated_at
-        $trader = Trader::where('code', $masterId)->first();
+         // Find the trader by MasterId and update updated_at
+         $trader = Trader::where('code', $masterId)->first();
 
-        if ($trader) {
-            $trader->touch(); // Updates the updated_at timestamp
-            return response()->json(['message' => 'Trader updated successfully'], 200);
-        } else {
-            return response()->json(['message' => 'Trader not found'], 404);
-        }
-    }*/
+         if ($trader) {
+             $trader->touch(); // Updates the updated_at timestamp
+             return response()->json(['message' => 'Trader updated successfully'], 200);
+         } else {
+             return response()->json(['message' => 'Trader not found'], 404);
+         }
+     }*/
     /*public function ping(Request $request)
     {
         $masterId = $request->input('MasterId');
@@ -234,13 +270,13 @@ class CommunicatorController extends Controller
 
         if ($masterLog) {
             // Check if updated_at is more than 30 seconds ago
-           /* if (strtotime($masterLog->updated_at) < now()->subSeconds(30)->timestamp) {
-                // Remove all positions belonging to the master
-                DB::table('positions')->where('master_id', $masterId)->delete();
-            }
+            /* if (strtotime($masterLog->updated_at) < now()->subSeconds(30)->timestamp) {
+                 // Remove all positions belonging to the master
+                 DB::table('positions')->where('master_id', $masterId)->delete();
+             }
 
-            // Update the updated_at timestamp
-            DB::table('master_logs')->where('master_id', $masterId)->update(['updated_at' => now()]);*/
+             // Update the updated_at timestamp
+             DB::table('master_logs')->where('master_id', $masterId)->update(['updated_at' => now()]);*/
 
             DB::table('master_logs')->where('master_id', $masterId)->update([
                 'status' => 'open',
@@ -262,27 +298,7 @@ class CommunicatorController extends Controller
     }
 
 
-    /*public function closeMasterStatus(Request $request)
-    {
-        Log::alert($request->all());
-        $masterId = $request->input('MasterId');
 
-        // Check if the master log exists
-        $masterLog = DB::table('master_logs')->where('master_id', $masterId)->first();
-
-        if ($masterLog) {
-            // Update the status to 'close'
-            DB::table('master_logs')->where('master_id', $masterId)->update([
-                'status' => 'close',
-                'updated_at' => now(),
-            ]);
-
-            return response()->json(['message' => 'Master status updated to close'], 200);
-        }
-
-        return response()->json(['message' => 'Master log not found'], 404);
-    }
-*/
     public function closeMasterStatus(Request $request)
     {
         Log::alert('Closing master status', $request->all());
@@ -323,11 +339,18 @@ class CommunicatorController extends Controller
 
 
 
+
+
     public function getRecentPositions(Request $request)
     {
         $masterId = $request->input('MasterId');
         $slaveId = $request->input('SlaveId'); // Nullable
         $excludedIds = $request->input('ExcludedIds', []); // Expecting an array of IDs
+
+        $slaveValidation = $this->validateSlaveTrader($slaveId);
+        if ($slaveValidation !== true) {
+            return $slaveValidation; // Return the error response if validation fails
+        }
 
         // Track if it's a new slave trader
         $isNewSlave = false;
@@ -364,18 +387,18 @@ class CommunicatorController extends Controller
 
         // Raise event if a new slave was created
         if ($isNewSlave) {
-           /* Log::info("Dispatching NewTradeEvent", [
-                'master_id' => $trader->id,
-                'slave_id' => $slaveId,
-                'ip_address' => $ipAddress,
-            ]);
+            /* Log::info("Dispatching NewTradeEvent", [
+                 'master_id' => $trader->id,
+                 'slave_id' => $slaveId,
+                 'ip_address' => $ipAddress,
+             ]);
 
-            event(new NewTradeEvent([
-                'master_id' => $trader->id,
-                'slave_id' => $slaveId,
-                'ip_address' => $ipAddress,
-                'created_at' => now(),
-            ]));*/
+             event(new NewTradeEvent([
+                 'master_id' => $trader->id,
+                 'slave_id' => $slaveId,
+                 'ip_address' => $ipAddress,
+                 'created_at' => now(),
+             ]));*/
             if ($isNewSlave) {
                 $this->notifyNewTrade($trader->id, $slaveId, $ipAddress);
             }
@@ -386,11 +409,11 @@ class CommunicatorController extends Controller
             ->whereNotIn('id', $excludedIds)
             ->get();
 
-       /* return response()->json([
-            'message' => 'Recent positions retrieved successfully',
-            'slave_id' => $slaveId, // Send slaveId in response
-            'positions' => $positions,
-        ], 200);*/
+        /* return response()->json([
+             'message' => 'Recent positions retrieved successfully',
+             'slave_id' => $slaveId, // Send slaveId in response
+             'positions' => $positions,
+         ], 200);*/
         // Define CSV headers (added 'ID' column)
         // Define CSV headers (Added 'Slave ID' column)
         $csvHeaders = ['ID', 'Slave ID', 'Type', 'Instrument', 'Market Position', 'Quantity', 'Average Price', 'Unrealized PnL', 'Stop Loss', 'Take Profit', 'Status', 'Time'];
@@ -421,11 +444,34 @@ class CommunicatorController extends Controller
             ->header('Content-Disposition', 'attachment; filename="positions.csv"');
     }
 
+    public function validateSlaveTrader($slaveId)
+    {
+        // Check if the SlaveTrader exists and the status is true
+        $slaveTrader = SlaveTrader::where('code', $slaveId)->where('status', true)->first();
+
+        // If no valid slave trader is found, return a response indicating failure
+        if (!$slaveTrader) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The provided SlaveTrader does not exist or is inactive.',
+            ], 404);
+        }
+
+        // If valid, set the connection_status to true and save the record
+        $slaveTrader->connection_status = true;
+        $slaveTrader->save();
+
+        // Return true to indicate validation success
+        return true;
+    }
+
+
     /**
      * Private method to send Pusher notification for a new trade.
      */
     private function notifyNewTrade($masterId, $slaveId, $ipAddress)
     {
+        return;
         try {
             $options = [
                 'cluster' => env('PUSHER_APP_CLUSTER'),
@@ -461,20 +507,20 @@ class CommunicatorController extends Controller
     }
 
 
-   /* public function checkMasterStatus(Request $request)
-    {
-        $masterId = $request->input('MasterId');
+    /* public function checkMasterStatus(Request $request)
+     {
+         $masterId = $request->input('MasterId');
 
-        // Find the trader by MasterId
-        $trader = Trader::where('code', $masterId)->first();
+         // Find the trader by MasterId
+         $trader = Trader::where('code', $masterId)->first();
 
-        if (!$trader) {
-            return response('close', 404);
-        }
+         if (!$trader) {
+             return response('close', 404);
+         }
 
-        // Check if updated_at is more than 3 minutes ago
-        return $trader->updated_at < now()->subSeconds(20) ? 'close' : 'open';
-    }*/
+         // Check if updated_at is more than 3 minutes ago
+         return $trader->updated_at < now()->subSeconds(20) ? 'close' : 'open';
+     }*/
 
     public function checkMasterStatus(Request $request)
     {
@@ -485,11 +531,22 @@ class CommunicatorController extends Controller
             ->where('master_id', $masterId)
             ->first();
 
+
         if (!$masterLog) {
             return response('close', 404);
         }
 
+        try {
+            if( $masterLog->status !== 'open'){
+                Position::where('master_id', $masterId)->delete();
+            }
+        } catch (\Exception $e) {
+            Log::error("error from close position" . $e->getMessage());
+        }
+
+
         // Check if the master status is "open" and updated within the last 20 seconds
+        // return $masterLog;
         return ($masterLog->status === 'open')
             ? 'open'
             : 'close';

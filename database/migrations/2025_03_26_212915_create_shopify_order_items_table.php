@@ -14,10 +14,11 @@ return new class extends Migration
         Schema::create('shopify_order_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id'); // Foreign key to the orders table
-        $table->bigInteger('product_id'); // Shopify product ID
-        $table->string('name'); // Product name
-        $table->integer('quantity'); // Product quantity
-        $table->decimal('price', 10, 2); // Product price
+            $table->bigInteger('product_id'); // Shopify product ID
+            $table->string('name'); // Product name
+            $table->integer('quantity'); // Product quantity
+            $table->foreignId('slave_traders_id');
+            $table->decimal('price', 10, 2); // Product price
             $table->timestamps();
         });
     }

@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('traders', function (Blueprint $table) {
             $table->id();
             $table->uuid('code')->unique(); // UUID field for the Trader code
+            $table->foreignId('user_trader_id')->nullable(); // Foreign key to traders table
             $table->timestamps();
         });
     }

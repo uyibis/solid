@@ -16,8 +16,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade'); // Foreign key to users table
-            $table->foreignId('trader_id')->constrained()->onDelete('cascade'); // Foreign key to traders table
+            $table->boolean('status')->default(true);
             $table->timestamps();
         });
     }
